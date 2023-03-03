@@ -8,7 +8,7 @@ import torch.backends.cudnn as cudnn
 from numpy import random
 
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
+from utils.datasets import LoadStreams, LoadImages, LoadRs
 from utils.general import (
     check_img_size,
     check_requirements,
@@ -40,6 +40,7 @@ def detect(save_img=False):
         or source.endswith(".txt")
         or source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
     )
+    realsense = source == "rs"
 
     # Directories
     save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
@@ -73,6 +74,8 @@ def detect(save_img=False):
         view_img = check_imshow()
         cudnn.benchmark = True  # set True to speed up constant image size inference
         dataset = LoadStreams(source, img_size=imgsz, stride=stride)
+    elif realsense:
+        dataset = LoadRs(img_size=imgsz, stride=stride)
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
 
@@ -120,7 +123,7 @@ def detect(save_img=False):
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            if webcam:  # batch_size >= 1
+            if webcam or realsense:  # batch_size >= 1
                 p, s, im0, frame = path[i], "%g: " % i, im0s[i].copy(), dataset.count
             else:
                 p, s, im0, frame = path, "", im0s, getattr(dataset, "frame", 0)
@@ -188,7 +191,7 @@ def detect(save_img=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--weights", nargs="+", type=str, default="yolov7.pt", help="model.pt path(s)")
-    parser.add_argument("--source", type=str, default="inference/images", help="source")  # file/folder, 0 for webcam
+    parser.add_argument("--source", type=str, default="rs", help="source")  # file/folder, 0 for webcam, rs for realsense
     parser.add_argument("--img-size", type=int, default=640, help="inference size (pixels)")
     parser.add_argument("--conf-thres", type=float, default=0.25, help="object confidence threshold")
     parser.add_argument("--iou-thres", type=float, default=0.45, help="IOU threshold for NMS")
