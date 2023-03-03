@@ -24,7 +24,7 @@ from torchvision import transforms
 import numpy as np
 from utils.datasets import letterbox
 from utils.general import non_max_suppression_kpt
-from utils.plots import output_to_keypoint, plot_skeleton_kpts
+from utils.plots import Skeleton3D, output_to_keypoint, plot_skeleton_kpts
 
 
 def detect():
@@ -41,6 +41,9 @@ def detect():
         or source.lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
     )
     realsense = source == "rs"
+
+    # Object to manage the 3D skeleton
+    sk = Skeleton3D()
 
     # Initialize
     set_logging()
@@ -68,11 +71,7 @@ def detect():
         dataset = LoadRs(img_size=imgsz, stride=stride)
     else:
         dataset = LoadImages(source, img_size=imgsz, stride=stride)
-
-    # Get names and colors
-    names = model.module.names if hasattr(model, "module") else model.names
-    colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
-
+        
     # Run inference
     if device.type != "cpu":
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
@@ -80,7 +79,7 @@ def detect():
     old_img_b = 1
 
     t0 = time.time()
-    for path, img, im0s, vid_cap in dataset:
+    for path, img, depth, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -114,7 +113,7 @@ def detect():
         nimg = nimg.cpu().numpy().astype(np.uint8)
         nimg = cv2.cvtColor(nimg, cv2.COLOR_RGB2BGR)
         for idx in range(pred.shape[0]):
-            plot_skeleton_kpts(nimg, pred[idx, 7:].T, 3)
+            sk.plot_3D_skeleton(nimg, depth = depth, kpts = pred[idx, 7:].T, steps = 3)
 
             # Print time (inference + NMS)
             print(f"Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS")

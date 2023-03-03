@@ -22,8 +22,8 @@ from utils.general import xywh2xyxy, xyxy2xywh
 from utils.metrics import fitness
 
 # Settings
-matplotlib.rc('font', **{'size': 11})
-matplotlib.use('Agg')  # for writing to files only
+# matplotlib.rc('font', **{'size': 11})
+# matplotlib.use('Agg')  # for writing to files only
 
 
 def color_list():
@@ -445,7 +445,7 @@ def output_to_keypoint(output):
 
 
 def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
-    #Plot the skeleton and keypointsfor coco datatset
+    #Plot the skeleton and keypoints for coco datatset
     palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
                         [230, 230, 0], [255, 153, 255], [153, 204, 255],
                         [255, 102, 255], [255, 51, 255], [102, 178, 255],
@@ -462,7 +462,6 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
     pose_kpt_color = palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
     radius = 5
     num_kpts = len(kpts) // steps
-
     for kid in range(num_kpts):
         r, g, b = pose_kpt_color[kid]
         x_coord, y_coord = kpts[steps * kid], kpts[steps * kid + 1]
@@ -487,3 +486,106 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
         if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0]<0 or pos2[1]<0:
             continue
         cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+
+class Skeleton3D:
+
+    def __init__(self):
+        # 3D Pose estimation
+        self.A= np.array([
+            [ 906.805908203125,0.0,645.4268798828125],
+            [ 0.0, 905.5286254882812, 375.8621520996094],
+            [ 0.0, 0.0, 1.0 ]
+        ])
+        self.A = np.linalg.inv(self.A)
+        self.pix = np.array([0,0,0])
+        self.P = np.array([0,0,0])
+
+        # The figure to show the 3D skeleton plot
+        self.fig = plt.figure()
+        self.ax = self.fig.add_subplot(projection='3d')
+
+    def calculate_3D_points(self,u,v,Z):
+        self.pix[0]=u
+        self.pix[1]=v
+        self.pix[2]=1
+        P = np.matmul(self.A, self.pix)
+        X = Z * P[0]
+        Y = Z * P[1]
+        return X,Y,Z
+
+    def saturate(self,x,y,w,h):
+        if y > h:
+            y = h
+        if y < 0:
+            y = 0
+        if x > w:
+            x = w
+        if x < 0:
+            x = 0
+        return x,y
+
+    def plot_3D_skeleton(self, im, depth, kpts, steps, orig_shape=None):
+        #Plot the skeleton and keypoints for coco datatset
+        palette = np.array([[255, 128, 0], [255, 153, 51], [255, 178, 102],
+                            [230, 230, 0], [255, 153, 255], [153, 204, 255],
+                            [255, 102, 255], [255, 51, 255], [102, 178, 255],
+                            [51, 153, 255], [255, 153, 153], [255, 102, 102],
+                            [255, 51, 51], [153, 255, 153], [102, 255, 102],
+                            [51, 255, 51], [0, 255, 0], [0, 0, 255], [255, 0, 0],
+                            [255, 255, 255]])
+
+        skeleton = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12],
+                    [7, 13], [6, 7], [6, 8], [7, 9], [8, 10], [9, 11], [2, 3],
+                    [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]]
+
+        pose_limb_color = palette[[9, 9, 9, 9, 7, 7, 7, 0, 0, 0, 0, 0, 16, 16, 16, 16, 16, 16, 16]]
+        pose_kpt_color = palette[[16, 16, 16, 16, 16, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 9, 9]]
+        radius = 5
+        num_kpts = len(kpts) // steps
+
+        self.ax.cla()
+        x_points = []
+        y_points = []
+        z_points = []
+        for kid in range(num_kpts):
+            r, g, b = pose_kpt_color[kid]
+            x_coord, y_coord = kpts[steps * kid], kpts[steps * kid + 1]
+
+            if not (x_coord % 640 == 0 or y_coord % 640 == 0):
+                if steps == 3:
+                    conf = kpts[steps * kid + 2]
+                    if conf < 0.5:
+                        x_points.append(0)
+                        y_points.append(0)
+                        z_points.append(0)
+                        continue
+                x_coord, y_coord = self.saturate(x_coord,y_coord, 639,479)
+                X,Y,Z = self.calculate_3D_points(x_coord,y_coord,depth.get_distance(int(x_coord), int(y_coord)))
+                x_points.append(X)
+                y_points.append(Y)
+                z_points.append(Z)
+                self.ax.scatter(X, Y, Z, marker='o', c=np.array([[int(b/255), int(g/255), int(r/255)]]))
+                cv2.circle(im, (int(x_coord), int(y_coord)), radius, (int(r), int(g), int(b)), -1)
+        plt.draw()
+        plt.pause(0.00000001)
+
+        for sk_id, sk in enumerate(skeleton):
+            r, g, b = pose_limb_color[sk_id]
+            pos1 = (int(kpts[(sk[0]-1)*steps]), int(kpts[(sk[0]-1)*steps+1]))
+            pos2 = (int(kpts[(sk[1]-1)*steps]), int(kpts[(sk[1]-1)*steps+1]))
+            pos1_3d = (int(x_points[(sk[0]-1)*steps]), int(y_points[(sk[0]-1)*steps+1]), int(z_points[(sk[0]-1)*steps+1]))
+            pos2_3d = (int(x_points[(sk[1]-1)*steps]), int(y_points[(sk[1]-1)*steps+1]), int(z_points[(sk[0]-1)*steps+1]))
+            if steps == 3:
+                conf1 = kpts[(sk[0]-1)*steps+2]
+                conf2 = kpts[(sk[1]-1)*steps+2]
+                if conf1<0.5 or conf2<0.5:
+                    continue
+            if pos1[0]%640 == 0 or pos1[1]%640==0 or pos1[0]<0 or pos1[1]<0:
+                continue
+            if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0]<0 or pos2[1]<0:
+                continue
+            x, y, z = [1, 1.5], [1, 2.4], [3.4, 1.4]
+            ax.plot()
+            cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+
+        

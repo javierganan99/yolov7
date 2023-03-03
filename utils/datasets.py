@@ -1414,17 +1414,22 @@ def load_segmentations(self, index):
 
 
 class LoadRs:  # Load frames for the realsense
-    def __init__(self, img_size=960, stride=64, fps = 30):
+    def __init__(self, img_size=640, stride=64, fps = 30, depth = True):
+        self.depth = depth # Return or not depth for the realsense
         self.mode = "stream"
         self.init_pipeline(fps)
         self.img_size = img_size
         self.stride = stride
         self.imgs = [None]
+        self.depths = [None]
         # Check first image
         frames = self.pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
         self.imgs[0] = np.asanyarray(color_frame.get_data())
-        thread = Thread(target=self.update, daemon=True)
+        if depth:
+            thread = Thread(target=self.update_rgbd, daemon=True)
+        else:
+            thread = Thread(target=self.update, daemon=True)
         thread.start()
         print("")  # newline
 
@@ -1475,6 +1480,20 @@ class LoadRs:  # Load frames for the realsense
             self.imgs[0] = np.asanyarray(color_frame.get_data())
             time.sleep(1 / self.fps)  # wait time
 
+    def update_rgbd(self):
+        # Read next stream frame in a daemon thread
+        while True:
+            # Get color_frame
+            frames = self.pipeline.wait_for_frames()
+            depth_frame = frames.get_depth_frame()
+            color_frame = frames.get_color_frame()
+            if not depth_frame or not color_frame:
+                continue
+            # Convert image to numpy array
+            self.imgs[0] = np.asanyarray(color_frame.get_data())
+            self.depths[0] = depth_frame
+            time.sleep(1 / self.fps)  # wait time
+
     def __iter__(self):
         self.count = -1
         return self
@@ -1496,7 +1515,11 @@ class LoadRs:  # Load frames for the realsense
         img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
         img = np.ascontiguousarray(img)
 
-        return "streams.txt", img, img0, None
+        if self.depth:
+            return "streams.txt", img, self.depths[0], None
+
+
+        return "streams.txt", img, None, None
 
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
